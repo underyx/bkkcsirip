@@ -1,0 +1,14 @@
+bkk_api_url = 'http://www.bkk.hu/apps/bkkinfo/lista-api.php'
+
+redis_config = {
+    'host': 'localhost',
+    'port': 6379,
+    'db': 0,
+}
+
+date_locale = 'hu_HU'
+
+twitter_app_key = ''
+twitter_app_secret = ''
+twitter_user_key = ''
+twitter_user_secret = ''
