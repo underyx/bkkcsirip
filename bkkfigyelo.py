@@ -45,7 +45,7 @@ def parse_notice(notice):
 
 def generate_tweet(notice):
     tweet_template = '{lines}: {description} {from} - {until}'
-    time_template = '%b. %d %H:%M'
+    time_template = '%b. %d. %H:%M'
 
     fields = {
         'lines': ', '.join(notice['lines']),
