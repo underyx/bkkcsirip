@@ -17,9 +17,8 @@ class NoticeStore(Redis):
         return [notice for notice in notices
                 if not self.exists(notice['id']) or self.check_update(notice)]
 
-    def save_new_notices(self, notices):
-        for notice in notices:
-            self.set(notice['id'], int(notice['updated'].timestamp()))
+    def save_new_notice(self, notice):
+        self.set(notice['id'], int(notice['updated'].timestamp()))
 
     def check_update(self, notice):
         return int(self.get(notice['id'])) < int(notice['updated'].timestamp())
@@ -89,8 +88,7 @@ def main():
 
     for notice in new_notices:
         post_tweet(generate_tweet(notice))
-
-    notice_store.save_new_notices(new_notices)
+        notice_store.save_new_notice(notice)
 
 if __name__ == '__main__':
     main()
