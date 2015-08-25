@@ -22,7 +22,7 @@ DATE_FORMAT = '%b. %d. %H:%M'
 CHECK_INTERVAL = os.getenv('BKKCSIRIP_CHECK_INTERVAL', 60)
 
 
-class Notice:
+class Notice(object):
 
     def __init__(self, data):
         self.id = data['id']
