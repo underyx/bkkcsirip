@@ -1,94 +1,103 @@
-#!/usr/bin/env python3.4
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import os
+import time
 import locale
+import logging
+from itertools import chain
 from datetime import datetime
 
-from redis import Redis
 import requests
+from redis import StrictRedis
 from requests_oauthlib import OAuth1
 
-import config as CONF
+
+BKK_API_URL = 'https://www.bkk.hu/apps/bkkinfo/lista-api.php'
+TWITTER_UPDATE_URL = 'https://api.twitter.com/1.1/statuses/update.json'
+REDIS = StrictRedis.from_url(os.getenv('BKKCSIRIP_REDIS_URL', 'redis://localhost:6379/0'))
+TWEET_TEMPLATE = '{lines}: {body} {start} - {end}'
+DATE_FORMAT = '%b. %d. %H:%M'
+
+CHECK_INTERVAL = os.getenv('BKKCSIRIP_CHECK_INTERVAL', 60)
 
 
-class NoticeStore(Redis):
+class Notice:
 
-    def find_new_notices(self, notices):
-        return [notice for notice in notices
-                if not self.exists(notice['id']) or self.check_update(notice)]
+    def __init__(self, data):
+        self.id = data['id']
+        self.start = datetime.fromtimestamp(int(data['kezd']['epoch'])) if data['kezd'] else None
+        self.end = datetime.fromtimestamp(int(data['vege']['epoch'])) if data['vege'] else None
+        self.lines = chain.from_iterable(i['jaratok'] for i in data['jaratokByFajta'])
+        self.body = data['elnevezes']
+        self.timestamp = int(data['modositva']['epoch'])
 
-    def save_new_notice(self, notice):
-        self.set(notice['id'], int(notice['updated'].timestamp()))
+    def save(self):
+        REDIS.set(self.id, self.timestamp)
 
-    def check_update(self, notice):
-        return int(self.get(notice['id'])) < int(notice['updated'].timestamp())
+    @property
+    def tweet(self):
+        tweet = TWEET_TEMPLATE.format(
+            lines=', '.join(self.lines),
+            body=self.body,
+            start=self.start.strftime(DATE_FORMAT),
+            end=self.end.strftime(DATE_FORMAT) if self.end else '???',
+        )
+        return trim_tweet(tweet)
 
+    @property
+    def is_new(self):
+        return not REDIS.exists(self.id)
 
-def get_bkk_info():
-    rs = requests.get(CONF.bkk_api_url)
-    return rs.json()
-
-
-def parse_notice(notice):
-    return {
-        'id': notice['id'],
-        'from': (datetime.fromtimestamp(int(notice['kezd']['epoch']))
-                 if notice['kezd'] else None),
-        'until': (datetime.fromtimestamp(int(notice['vege']['epoch']))
-                  if notice['vege'] else None),
-        'lines': sum([i['jaratok'] for i in notice['jaratokByFajta']], []),
-        'description': notice['elnevezes'],
-        'updated': datetime.fromtimestamp(int(notice['modositva']['epoch'])),
-    }
+    @property
+    def is_updated(self):
+        return int(REDIS.get(self.id)) < self.timestamp
 
 
-def generate_tweet(notice):
-    tweet_template = '{lines}: {description} {from} - {until}'
-    time_template = '%b. %d. %H:%M'
-
-    fields = {
-        'lines': ', '.join(notice['lines']),
-        'description': notice['description'],
-        'from': notice['from'].strftime(time_template),
-        'until': (notice['until'].strftime(time_template)
-                  if notice['until'] else '???'),
-    }
-
-    return trim_tweet(tweet_template.format(**fields))
+def retrieve_notices():
+    logging.info('Retrieving notices')
+    response = requests.get(BKK_API_URL).json()
+    raw_notices = response['active'] + response['soon'] + response['future']
+    return (Notice(raw_notice) for raw_notice in raw_notices)
 
 
 def trim_tweet(tweet):
-    if len(tweet) > 140:
-        return tweet[:137] + "..."
-    else:
-        return tweet
+    return tweet[:139] + "…" if len(tweet) > 140 else tweet
 
 
 def post_tweet(tweet):
     if 'közlemény' in tweet:  # FIXME
         return
 
-    auth = OAuth1(CONF.twitter_app_key, CONF.twitter_app_secret,
-                  CONF.twitter_user_key, CONF.twitter_user_secret)
+    auth = OAuth1(
+        os.environ['BKKCSIRIP_TWITTER_APP_KEY'],
+        os.environ['BKKCSIRIP_TWITTER_APP_SECRET'],
+        os.environ['BKKCSIRIP_TWITTER_USER_KEY'],
+        os.environ['BKKCSIRIP_TWITTER_USER_SECRET'],
+    )
 
-    rs = requests.post('https://api.twitter.com/1.1/statuses/update.json',
-                      auth=auth, data={'status': tweet})
-
-    return rs.json()
+    logging.info('Posting tweet: %s', tweet)
+    response = requests.post(TWITTER_UPDATE_URL, auth=auth, data={'status': tweet})
+    return response.json()
 
 
 def main():
-    locale.setlocale(locale.LC_TIME, CONF.date_locale)
-    notice_store = NoticeStore(**CONF.redis_config)
+    logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(module)s.%(funcName)s - %(message)s')
+    if 'BKKCSIRIP_DATE_LOCALE' in os.environ:
+        locale.setlocale(locale.LC_TIME, os.environ['BKKCSIRIP_DATE_LOCALE'])
 
-    new_notices = notice_store.find_new_notices(
-        sum([[parse_notice(notice) for notice in notice_set]
-             for notice_set in get_bkk_info().values()], [])
-    )
-
-    for notice in new_notices:
-        post_tweet(generate_tweet(notice))
-        notice_store.save_new_notice(notice)
+    logging.info('Starting check loop')
+    while True:
+        for notice in retrieve_notices():
+            if notice.is_new or notice.is_updated:
+                try:
+                    post_tweet(notice.tweet)
+                except Exception as ex:
+                    logging.exception('Exception while posting tweet')
+                else:
+                    notice.save()
+        logging.info('Sleeping for %s seconds', CHECK_INTERVAL)
+        time.sleep(CHECK_INTERVAL)
 
 if __name__ == '__main__':
     main()

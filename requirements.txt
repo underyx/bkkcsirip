@@ -1,3 +1,4 @@
-requests>=2.2
-requests_oauthlib>=0.4
-redis>=2.9
+oauthlib==1.0.3
+redis==2.10.3
+requests==2.7.0
+requests-oauthlib==0.5.0
