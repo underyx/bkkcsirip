@@ -6,7 +6,7 @@ with io.open('README.md', encoding='utf-8') as f:
 
 setup(
     name='bkkcsirip',
-    version='1.0.0',
+    version='1.1.0',
     url='https://github.com/underyx/bkkcsirip',
     author='Bence Nagy',
     author_email='bence@underyx@me',
@@ -17,6 +17,7 @@ setup(
     py_modules=['bkkcsirip'],
     package_data={'': ['LICENSE']},
     install_requires=[
+        'arrow<0.9',
         'oauthlib<2',
         'redis<3',
         'requests<3',
