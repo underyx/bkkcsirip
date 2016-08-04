@@ -8,6 +8,7 @@ import logging
 from itertools import chain
 from datetime import datetime
 
+import arrow
 import requests
 from redis import StrictRedis
 from requests_oauthlib import OAuth1
@@ -17,7 +18,8 @@ BKK_API_URL = 'https://www.bkk.hu/apps/bkkinfo/lista-api.php'
 TWITTER_UPDATE_URL = 'https://api.twitter.com/1.1/statuses/update.json'
 REDIS = StrictRedis.from_url(os.getenv('BKKCSIRIP_REDIS_URL', 'redis://localhost:6379/0'))
 TWEET_TEMPLATE = '{lines}: {body} {start} - {end}'
-DATE_FORMAT = '%b. %d. %H:%M'
+DATE_FORMAT = 'MMM. D. HH:MM'
+DATE_LOCALE = os.getenv('BKKCSIRIP_DATE_LOCALE', 'hu_hu')
 
 CHECK_INTERVAL = os.getenv('BKKCSIRIP_CHECK_INTERVAL', 60)
 
@@ -26,8 +28,8 @@ class Notice(object):
 
     def __init__(self, data):
         self.id = data['id']
-        self.start = datetime.fromtimestamp(int(data['kezd']['epoch'])) if data['kezd'] else None
-        self.end = datetime.fromtimestamp(int(data['vege']['epoch'])) if data['vege'] else None
+        self.start = arrow.get(int(data['kezd']['epoch'])) if data['kezd'] else None
+        self.end = arrow.get(int(data['vege']['epoch'])) if data['vege'] else None
         self.lines = chain.from_iterable(i['jaratok'] for i in data['jaratokByFajta'])
         self.body = data['elnevezes']
         self.timestamp = int(data['modositva']['epoch'])
@@ -40,8 +42,8 @@ class Notice(object):
         tweet = TWEET_TEMPLATE.format(
             lines=', '.join(self.lines),
             body=self.body,
-            start=self.start.strftime(DATE_FORMAT),
-            end=self.end.strftime(DATE_FORMAT) if self.end else '???',
+            start=self.start.to('Europe/Budapest').format(DATE_FORMAT, locale=DATE_LOCALE),
+            end=self.end.to('Europe/Budapest').format(DATE_FORMAT, locale=DATE_LOCALE) if self.end else '???',
         )
         return trim_tweet(tweet)
 
@@ -83,8 +85,6 @@ def post_tweet(tweet):
 
 def main():
     logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(module)s.%(funcName)s - %(message)s')
-    if 'BKKCSIRIP_DATE_LOCALE' in os.environ:
-        locale.setlocale(locale.LC_TIME, os.environ['BKKCSIRIP_DATE_LOCALE'])
 
     logging.info('Starting check loop')
     while True:
