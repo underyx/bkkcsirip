@@ -3,10 +3,8 @@
 
 import os
 import time
-import locale
 import logging
 from itertools import chain
-from datetime import datetime
 
 import arrow
 import requests
