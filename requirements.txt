@@ -1,5 +1,5 @@
 arrow==0.8.0
-oauthlib==1.0.3
+oauthlib==2.0.0
 python-dateutil==2.5.3
 redis==2.10.3
 requests==2.11.1
